@@ -1,0 +1,385 @@
+// This file defines the data contracts (messages) for your Axiom package.
+// Every node's --input and --output refers to a message defined here.
+//
+// Run `axiom create message <Name>` to scaffold a new message below.
+// Run `axiom generate` to compile these definitions into language bindings in gen/.
+//
+// DOCUMENTATION
+//   Comments written directly above a message or field declaration are extracted
+//   automatically at publish time and shown in the Axiom registry as documentation.
+//   Write your descriptions there — no separate doc files needed.
+//
+//   Leading comment  (no blank line before the declaration) → registry description ✓
+//   Detached comment (blank line before the declaration)    → ignored by registry  ✗
+//
+// This file is yours to edit. Axiom only appends new message blocks — it never
+// overwrites or removes content you have written.
+
+syntax = "proto3";
+
+package christiangeorgelucas.stix_tools;
+
+// Data contracts for christiangeorgelucas/stix-tools — STIX 2.1 cyber threat
+// intelligence object parsing, validation, construction, and relationship
+// resolution, wrapping the OASIS reference `stix2` library (vendored,
+// BSD-3-Clause — see requirements.txt for why) and its `stix2-patterns`
+// indicator-pattern grammar.
+//
+// proto3 omits default scalars (0, "", false) from the JSON the HTTP bridge
+// emits, so a consumer must treat a missing `error` as success and a missing
+// string/int field as its zero value. Two zero-values are spec-meaningful,
+// not just "unset": STIX Indicator `confidence` of 0 literally means "Not
+// Specified" per the STIX 2.1 spec, and Malware `is_family` of false is a
+// genuine, spec-conformant value (a single malware instance, not a family) —
+// neither needs a wrapper type.
+//
+// All caller-supplied JSON/text fields are bounded well under Axiom's ~1 MiB
+// deployed-ingress cap (see per-message comments for exact caps) and a
+// malformed/oversized input returns a structured `error` rather than a
+// crash.
+
+// The canonical single-object envelope shared across every node in this
+// package: a decoded STIX object's identifying fields plus its full
+// serialized JSON (`raw_json`), so a Build* node's output can be fed
+// straight into BuildBundle.objects_json or another tool without
+// re-serializing.
+message StixObject {
+  // The object's STIX id, e.g. "indicator--<uuid>". Per the STIX 2.1 spec,
+  // most SDO/SRO ids embed a randomly-generated UUIDv4 chosen at creation
+  // time — this is normal, spec-conformant behavior, not nondeterminism.
+  string id = 1;
+  // The STIX object type, e.g. "indicator", "malware", "threat-actor",
+  // "attack-pattern", "relationship", "bundle".
+  string type = 2;
+  // The STIX spec version this object declares, e.g. "2.1".
+  string spec_version = 3;
+  // Creation timestamp as declared on the object, RFC 3339 UTC.
+  string created = 4;
+  // Last-modified timestamp as declared on the object, RFC 3339 UTC.
+  string modified = 5;
+  // The object's `name` property when it has one (Indicator, Malware,
+  // ThreatActor, AttackPattern all do; Relationship does not, so this is
+  // empty for relationship objects).
+  string name = 6;
+  // The object's full canonical STIX JSON serialization.
+  string raw_json = 7;
+}
+
+// Input for nodes that accept a single caller-supplied STIX object OR a
+// full STIX Bundle as JSON text. Bounded to 512 KiB.
+message StixInput {
+  // A single STIX 2.1 SDO/SCO/SRO, or a Bundle wrapping several, as JSON
+  // text. Bounded to 512 KiB; larger input returns a structured error.
+  string stix_json = 1;
+}
+
+// Result of ParseBundle.
+message ParseBundleResult {
+  // False when `stix_json` failed to parse as STIX content at all (not
+  // valid JSON, or missing the required `type`/`id` on the top-level
+  // object). A bundle whose individual member objects have spec problems
+  // still parses (ok=true) — use ValidateStixObject for spec-conformance
+  // checking of specific members.
+  bool ok = 1;
+  // Structured error token/message when ok=false; empty otherwise.
+  string error = 2;
+  // The bundle's own id. Empty if `stix_json` was a single bare object
+  // rather than a Bundle (in which case `objects` holds exactly that one
+  // object).
+  string bundle_id = 3;
+  // The bundle's declared spec_version (Bundle itself has no spec_version
+  // property in 2.1 — this reports the version detected from its member
+  // objects; empty if it cannot be determined).
+  string spec_version = 4;
+  // Every top-level object found — the bundle's `objects` array, or the
+  // single bare object when `stix_json` was not a bundle.
+  repeated StixObject objects = 5;
+}
+
+// A single structural/spec-conformance problem found by ValidateStixObject.
+message ValidationError {
+  // The property path the problem was found at, e.g. "pattern" or
+  // "kill_chain_phases[0].phase_name".
+  string path = 1;
+  // Human-readable description of the problem.
+  string message = 2;
+}
+
+// Result of ValidateStixObject.
+message ValidateResult {
+  // True only when `stix_json` parses AND satisfies the STIX 2.1 spec's
+  // structural requirements for its declared type (required properties
+  // present, correctly-typed, and — for a Bundle — every member object
+  // likewise valid). False for anything from malformed JSON to a single
+  // missing required property; see `errors` for specifics.
+  bool valid = 1;
+  // The detected object type, when determinable even amid other errors.
+  string object_type = 2;
+  // The detected object id, when determinable even amid other errors.
+  string object_id = 3;
+  // The structural problem found. The underlying stix2 library raises on
+  // the FIRST invalid property it encounters rather than accumulating every
+  // problem in one pass, so this holds exactly one entry when valid=false
+  // (fix it and re-validate to find the next one) and is empty when
+  // valid=true.
+  repeated ValidationError errors = 4;
+}
+
+// Input for FilterObjectsByType.
+message FilterInput {
+  // A STIX Bundle (or single object) as JSON text. Bounded to 512 KiB.
+  string stix_json = 1;
+  // The STIX type to keep, e.g. "indicator", "malware", "threat-actor",
+  // "attack-pattern", "relationship", "sighting". Empty or "all" keeps
+  // every object regardless of type.
+  string type_filter = 2;
+}
+
+// Result of FilterObjectsByType.
+message FilterResult {
+  // False when `stix_json` failed to parse as STIX content at all.
+  bool ok = 1;
+  // Structured error when ok=false; empty otherwise.
+  string error = 2;
+  // Count of objects matching `type_filter` (== len(objects)).
+  int32 matched_count = 3;
+  // The matching objects, in bundle order.
+  repeated StixObject objects = 4;
+}
+
+// A vertex in the relationship graph produced by ResolveRelationships — any
+// SDO/SCO that is referenced as a relationship/sighting endpoint or present
+// in the bundle.
+message GraphNode {
+  string id = 1;
+  string type = 2;
+  // The object's `name` property, when it has one; empty otherwise.
+  string name = 3;
+}
+
+// A directed edge in the relationship graph — one STIX Relationship or
+// Sighting SRO from the bundle.
+message GraphEdge {
+  // The Relationship/Sighting object's own STIX id.
+  string id = 1;
+  // The relationship_type (e.g. "indicates", "uses", "attributed-to",
+  // "targets", "mitigates"), or "sighting-of" for a Sighting SRO (which has
+  // no relationship_type property of its own).
+  string relationship_type = 2;
+  // The source endpoint's STIX id. For a Sighting, this is the
+  // sighting_of_ref.
+  string source_ref = 3;
+  // The target endpoint's STIX id. For a Sighting, this is the first
+  // where_sighted_ref (empty if the Sighting declares none).
+  string target_ref = 4;
+  // The source endpoint's STIX type, resolved by looking it up among the
+  // bundle's own objects; empty if the referenced object is not present in
+  // this bundle (a dangling reference — common and not itself an error,
+  // since STIX bundles may reference objects delivered separately).
+  string source_type = 5;
+  // The target endpoint's STIX type, resolved the same way; empty if not
+  // present in this bundle.
+  string target_type = 6;
+  // The Relationship's declared confidence (0-100; 0 = "Not Specified" per
+  // the STIX 2.1 spec, same as an omitted value). Always 0 for a Sighting
+  // edge (Sighting carries `count`, not `confidence`).
+  int32 confidence = 7;
+  // True when this edge came from a Sighting SRO rather than a Relationship
+  // SRO.
+  bool is_sighting = 8;
+}
+
+// Result of ResolveRelationships.
+message RelationshipGraphResult {
+  // False when `stix_json` failed to parse as STIX content at all.
+  bool ok = 1;
+  // Structured error when ok=false; empty otherwise.
+  string error = 2;
+  // Every SDO/SCO in the bundle (whether or not it participates in a
+  // relationship) as a graph vertex.
+  repeated GraphNode nodes = 3;
+  // One edge per Relationship or Sighting SRO in the bundle.
+  repeated GraphEdge edges = 4;
+}
+
+// Input for ParseIndicatorPattern and ValidatePattern.
+message PatternInput {
+  // A STIX Indicator pattern, e.g. "[ipv4-addr:value = '1.2.3.4']".
+  // Bounded to 64 KiB.
+  string pattern = 1;
+  // The pattern language: "stix" (the default when empty) is the only
+  // language this package parses/validates structurally; any other value
+  // (e.g. "pcre", "sigma", "snort") is returned as an unsupported-language
+  // error rather than guessed at.
+  string pattern_type = 2;
+}
+
+// One leaf comparison found while flattening a pattern's expression tree,
+// e.g. "ipv4-addr:value = '1.2.3.4'" becomes
+// {object_path: "ipv4-addr:value", operator: "=", value: "1.2.3.4"}.
+message ComparisonExpression {
+  // The STIX object-path being compared, e.g. "ipv4-addr:value" or
+  // "file:hashes.'SHA-256'".
+  string object_path = 1;
+  // The comparison operator as written: =, !=, >, <, >=, <=, IN, LIKE,
+  // MATCHES, ISSUBSET, ISSUPERSET.
+  string operator = 2;
+  // The literal being compared against, rendered as text (quotes stripped
+  // for strings; hex/binary constants kept in their original h'..'/b'..'
+  // form).
+  string value = 3;
+  // True if this comparison is wrapped in a STIX pattern NOT.
+  bool negated = 4;
+}
+
+// Result of ParseIndicatorPattern.
+message ParsePatternResult {
+  // False when `pattern` is not syntactically valid STIX Patterning
+  // language, or pattern_type is not "stix"/empty.
+  bool ok = 1;
+  // Structured error when ok=false; empty otherwise.
+  string error = 2;
+  // Every leaf comparison in the pattern, flattened across all observation
+  // expressions (AND/OR/FOLLOWEDBY composition and qualifiers like WITHIN/
+  // REPEATS are not reconstructed — this is a flat inventory of what the
+  // pattern actually compares, not a full re-render of its tree).
+  repeated ComparisonExpression comparisons = 3;
+  // How many top-level observation expressions the pattern contains (more
+  // than 1 means the pattern uses FOLLOWEDBY to compose multiple
+  // observations).
+  int32 observation_expression_count = 4;
+  // The distinct STIX Cyber Observable object types referenced anywhere in
+  // the pattern (e.g. ["ipv4-addr", "file"]), deduplicated.
+  repeated string object_types_referenced = 5;
+}
+
+// Result of ValidatePattern — a lighter-weight pass/fail check than
+// ParseIndicatorPattern, using stix2-patterns' own grammar-level linter.
+message ValidatePatternResult {
+  bool valid = 1;
+  // Syntax errors found, empty when valid=true.
+  repeated string errors = 2;
+}
+
+// Caller-specified fields for BuildIndicator. `id`/`created`/`modified` are
+// all optional overrides — leave empty to let the library generate a fresh
+// id (a random UUIDv4, per spec) and use the current time, exactly as a
+// hand-authored STIX tool would.
+message IndicatorSpec {
+  string id = 1;
+  string created = 2;
+  string modified = 3;
+  // REQUIRED. A STIX Indicator pattern, e.g. "[ipv4-addr:value = '1.2.3.4']".
+  // Bounded to 64 KiB.
+  string pattern = 4;
+  // The pattern language; "stix" is assumed when empty.
+  string pattern_type = 5;
+  // REQUIRED. RFC 3339 UTC timestamp the indicator is considered valid
+  // from.
+  string valid_from = 6;
+  string name = 7;
+  string description = 8;
+  // Open vocabulary, e.g. ["malicious-activity"].
+  repeated string indicator_types = 9;
+  // 0-100; 0 means "Not Specified" per the STIX 2.1 spec.
+  int32 confidence = 10;
+  repeated string labels = 11;
+}
+
+// Caller-specified fields for BuildMalware.
+message MalwareSpec {
+  string id = 1;
+  string created = 2;
+  string modified = 3;
+  // REQUIRED.
+  string name = 4;
+  // REQUIRED per the STIX 2.1 spec: true if this object represents a
+  // malware family rather than one specific instance/variant.
+  bool is_family = 5;
+  // Open vocabulary, e.g. ["ransomware", "trojan"].
+  repeated string malware_types = 6;
+  string description = 7;
+  repeated string labels = 8;
+}
+
+// Caller-specified fields for BuildThreatActor.
+message ThreatActorSpec {
+  string id = 1;
+  string created = 2;
+  string modified = 3;
+  // REQUIRED.
+  string name = 4;
+  // Open vocabulary, e.g. ["crime-syndicate", "nation-state"].
+  repeated string threat_actor_types = 5;
+  string description = 6;
+  // Open vocabulary, e.g. ["agent", "director"].
+  repeated string roles = 7;
+  // Open vocabulary: none, minimal, intermediate, advanced, expert,
+  // innovator, strategic.
+  string sophistication = 8;
+  // Open vocabulary: individual, club, contest, team, organization,
+  // government.
+  string resource_level = 9;
+  // Open vocabulary, e.g. "organizational-gain".
+  string primary_motivation = 10;
+  repeated string labels = 11;
+}
+
+// One entry of an AttackPattern's kill_chain_phases.
+message KillChainPhase {
+  // The kill-chain this phase belongs to, e.g. "lockheed-martin-cyber-kill-chain".
+  string kill_chain_name = 1;
+  // The phase within that kill chain, e.g. "reconnaissance".
+  string phase_name = 2;
+}
+
+// Caller-specified fields for BuildAttackPattern.
+message AttackPatternSpec {
+  string id = 1;
+  string created = 2;
+  string modified = 3;
+  // REQUIRED.
+  string name = 4;
+  string description = 5;
+  repeated KillChainPhase kill_chain_phases = 6;
+  repeated string labels = 7;
+}
+
+// Caller-specified fields for BuildRelationship.
+message RelationshipSpec {
+  string id = 1;
+  string created = 2;
+  string modified = 3;
+  // REQUIRED. Open vocabulary, e.g. "indicates", "uses", "attributed-to",
+  // "targets", "mitigates".
+  string relationship_type = 4;
+  // REQUIRED. The full STIX id of the source object, e.g.
+  // "indicator--<uuid>". Not checked for existence — a Relationship may
+  // legitimately reference an object delivered in a separate bundle.
+  string source_ref = 5;
+  // REQUIRED. The full STIX id of the target object.
+  string target_ref = 6;
+  string description = 7;
+}
+
+// Input for BuildBundle.
+message BuildBundleInput {
+  // Each entry is one already-serialized STIX object's JSON text — e.g.
+  // `object.raw_json` from a previous BuildIndicator/BuildMalware/etc. call,
+  // or an externally-authored object. Bounded to 2000 objects and 512 KiB
+  // total.
+  repeated string objects_json = 1;
+  // Optional id override; empty = auto-generate ("bundle--<uuid>").
+  string id = 2;
+}
+
+// Shared result envelope for every Build* node.
+message StixObjectResult {
+  // False when a REQUIRED field was missing/malformed, or an `objects_json`
+  // entry in BuildBundle failed to parse as a STIX object.
+  bool ok = 1;
+  // Structured error when ok=false; empty otherwise.
+  string error = 2;
+  // The constructed object, present only when ok=true.
+  StixObject object = 3;
+}

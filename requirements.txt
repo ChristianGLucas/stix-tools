@@ -1,0 +1,33 @@
+# Runtime deps, fully pinned for deterministic builds. All permissive.
+#
+# The OASIS reference STIX 2 library, `stix2` (cti-python-stix2, 3.0.2,
+# BSD-3-Clause), and its indicator-pattern grammar dependency `stix2-patterns`
+# (2.1.2, BSD-3-Clause) are VENDORED under vendor/stix2 and vendor/stix2patterns
+# (see vendor/stix2/LICENSE and vendor/stix2patterns/LICENSE) rather than
+# pulled from PyPI, and patched in ONE file (vendor/stix2/__init__.py — see
+# the "christiangeorgelucas/stix-tools patch" comment there) to drop the
+# unconditional import of `.datastore.taxii`:
+#   - Upstream stix2's setup.py declares `requests` as a hard, non-extra
+#     install_requires SOLELY to support stix2/datastore/taxii.py (a TAXII
+#     network client) and stix2/workbench.py (which also imports it).
+#     stix-tools is a stateless, offline wrapper — it never constructs a
+#     DataSource/DataSink or makes a network call — so those two modules are
+#     simply not vendored (originals kept as *.removed for provenance).
+#   - This matters because `requests` transitively pulls in `certifi`
+#     (MPL-2.0) — copyleft, and disallowed in this package's dependency tree
+#     even though the code path that needs it is never used.
+# With those two modules dropped, the vendored stix2 + stix2-patterns need
+# only the three PyPI packages below — verified via `pip-licenses` against a
+# from-scratch venv built from exactly this file:
+#   antlr4-python3-runtime   BSD            (ANTLR4 Python runtime; used by
+#                                            stix2-patterns' generated pattern
+#                                            lexer/parser)
+#   pytz                     MIT            (timezone handling for STIX
+#                                            RFC 3339 timestamp fields)
+#   simplejson               MIT OR AFL-2.1 (JSON encode/decode; stix2 uses
+#                                            its MIT-licensed arm)
+# No copyleft (GPL/AGPL/LGPL/MPL) anywhere in this tree. `requests`/`certifi`
+# are not installed and are not importable in this package's environment.
+antlr4-python3-runtime==4.13.2
+pytz==2026.2
+simplejson==4.1.1

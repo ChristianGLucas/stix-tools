@@ -1,0 +1,24 @@
+# Axiom flow — composes published nodes into a graph.
+# Build a STIX Indicator, then wrap it into a well-formed Bundle -- proves
+# BuildIndicator's StixObjectResult.object.raw_json composes cleanly as
+# BuildBundle's objects_json input within this package.
+name: indicator-then-bundle
+description: "Build a STIX Indicator, then assemble it into a Bundle."
+
+nodes:
+  - alias: build_indicator
+    package: christiangeorgelucas/stix-tools@0.1.0
+    node: BuildIndicator
+    col: 0
+    row: 0
+  - alias: build_bundle
+    package: christiangeorgelucas/stix-tools@0.1.0
+    node: BuildBundle
+    col: 1
+    row: 0
+
+edges:
+  - from: build_indicator
+    to: build_bundle
+    adapter:
+      objects_json: "[object.raw_json]"

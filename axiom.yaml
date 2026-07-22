@@ -1,0 +1,202 @@
+name: christiangeorgelucas/stix-tools
+version: 0.1.0
+language: python
+description: >-
+  Deterministic STIX 2.1 (Structured Threat Information eXpression) cyber
+  threat intelligence object parsing, validation, construction, and
+  relationship-graph resolution, wrapping the OASIS reference `stix2` library
+  (cti-python-stix2, BSD-3-Clause) and its `stix2-patterns` indicator-pattern
+  grammar (BSD-3-Clause). Both are VENDORED (see requirements.txt and
+  vendor/stix2/__init__.py) rather than pip-installed, patched to drop
+  upstream's unconditional `requests` import (used only by an unused TAXII
+  network client module) which would otherwise pull in `certifi` (MPL-2.0,
+  copyleft) — the resulting installed closure (antlr4-python3-runtime BSD,
+  pytz MIT, simplejson MIT-or-AFL-2.1) has no copyleft anywhere. Distinct
+  from certificate-tools (X.509 PKI), crypto-tools (primitives), jwt-tools
+  (JOSE), sbom-tools (software bill of materials), and packet-tools
+  (network-packet capture format) — this package is specifically the STIX
+  threat-intel OBJECT MODEL: parse a Bundle into its member objects, validate
+  a STIX object/Bundle's structural conformance to the 2.1 spec, enumerate
+  objects by type (indicators, malware, threat-actors, attack-patterns,
+  relationships, sightings), parse or lint an Indicator's STIX Patterning
+  Language pattern, resolve the graph of Relationship/Sighting edges between
+  objects in a Bundle, and construct well-formed Indicator / Malware /
+  ThreatActor / AttackPattern / Relationship SDOs/SRO plus assemble them into
+  a Bundle. Every node is a pure, stateless function over caller-supplied
+  JSON/text — no network calls, no persistence, no wall-clock reads beyond
+  the library's own id/timestamp generation (a random UUIDv4 id and the
+  current time, exactly as a hand-authored STIX tool would produce, and
+  fully overridable per-call for reproducible output). Every text/JSON input
+  is bounded well under Axiom's ~1 MiB deployed-ingress cap, and malformed or
+  oversized input returns a structured error rather than crashing.
+author: Christian George Lucas
+license: MIT
+tags:
+    - stix
+    - cti
+    - threat-intelligence
+    - cyber-security
+    - indicator
+    - malware
+    - threat-actor
+    - attack-pattern
+    - relationship
+    - ioc
+nodes:
+    - name: ParseBundle
+      input: StixInput
+      output: ParseBundleResult
+      description: >-
+        Parse a STIX 2.1 Bundle (or a single bare SDO/SCO/SRO) from JSON text
+        into its top-level objects. Each returned object carries its id,
+        type, spec_version, created/modified timestamps, name (when it has
+        one), and full serialized JSON. `ok` is false only when `stix_json`
+        fails to parse as STIX content at all (invalid JSON, missing/
+        unrecognized 'type', or a structurally invalid object) — a bundle
+        whose objects are individually well-formed always succeeds, even if
+        you don't recognize every object type it contains. Bounded to 512 KiB.
+    - name: ValidateStixObject
+      input: StixInput
+      output: ValidateResult
+      description: >-
+        Check whether `stix_json` — a single STIX SDO/SCO/SRO or a full
+        Bundle — is structurally valid per the STIX 2.1 spec: valid JSON,
+        recognized 'type', every required property present, and every
+        property correctly typed (for a Bundle, every contained object is
+        checked too, recursively, including id format and Indicator pattern
+        syntax). `valid` is true only when every check passes. The
+        underlying library raises on the first invalid property it finds
+        rather than accumulating every problem in one pass, so `errors`
+        holds exactly one entry when invalid — fix it and re-validate to
+        find the next one. This is a structural conformance check, not
+        cross-object semantic validation (it does not check whether a
+        Relationship's source_ref/target_ref actually resolve to real
+        objects). Bounded to 512 KiB.
+    - name: FilterObjectsByType
+      input: FilterInput
+      output: FilterResult
+      description: >-
+        Extract every object of a given STIX type from a Bundle (or a single
+        bare object) — the way you'd enumerate all Indicators, all Malware,
+        all Threat Actors, or all Attack Patterns in a feed. `type_filter` is
+        matched case-insensitively against each object's own 'type' property
+        (e.g. "indicator", "malware", "threat-actor", "attack-pattern",
+        "relationship", "sighting"); leave it empty or "all" to keep every
+        object regardless of type. `ok` is false only when `stix_json` fails
+        to parse as STIX content at all — matching zero objects is a normal,
+        successful result. Bounded to 512 KiB.
+    - name: ResolveRelationships
+      input: StixInput
+      output: RelationshipGraphResult
+      description: >-
+        Resolve the relationship graph embedded in a STIX Bundle: every
+        non-relationship SDO/SCO becomes a graph vertex, and every
+        Relationship or Sighting SRO becomes a directed edge (source_ref ->
+        target_ref for a Relationship; sighting_of_ref -> the first
+        where_sighted_ref for a Sighting). An edge's source_type/target_type
+        is resolved against the bundle's own objects and left empty when the
+        referenced id isn't present in this bundle — a dangling reference is
+        common (STIX content is often split across bundles) and is not
+        itself an error. `ok` is false only when `stix_json` fails to parse
+        as STIX content at all. Bounded to 512 KiB.
+    - name: ParseIndicatorPattern
+      input: PatternInput
+      output: ParsePatternResult
+      description: >-
+        Parse a STIX 2.1 Indicator pattern (the domain-specific language
+        used in Indicator.pattern, e.g. "[ipv4-addr:value = '1.2.3.4']")
+        into its leaf comparisons — object path, operator, and literal value
+        for every condition tested — plus how many top-level observation
+        expressions it composes (more than one means it uses FOLLOWEDBY) and
+        which STIX Cyber Observable object types it references. `ok` is
+        false for a syntactically invalid pattern or an unsupported
+        pattern_type (only "stix" is parsed). AND/OR grouping and qualifiers
+        (WITHIN/REPEATS/START-STOP) are not reconstructed — this is a flat
+        inventory of what the pattern compares, not a full tree re-render.
+        Bounded to 64 KiB.
+    - name: ValidatePattern
+      input: PatternInput
+      output: ValidatePatternResult
+      description: >-
+        Lint a STIX 2.1 Indicator pattern against the STIX Patterning
+        grammar using stix2-patterns' own grammar-level validator — a
+        lighter-weight pass/fail check than ParseIndicatorPattern (no AST is
+        built or returned), useful for validating many candidate patterns
+        quickly. `valid` is true only when syntactically well-formed;
+        `errors` can report more than one problem (the ANTLR-based grammar
+        checker collects every lexer/parser error in one pass rather than
+        bailing at the first). Bounded to 64 KiB.
+    - name: BuildIndicator
+      input: IndicatorSpec
+      output: StixObjectResult
+      description: >-
+        Construct a well-formed STIX 2.1 Indicator SDO from caller-supplied
+        fields and serialize it. `pattern` and `valid_from` are REQUIRED;
+        `id`/`created`/`modified` are optional overrides — leave them empty
+        to let the library generate a fresh, spec-conformant id (a random
+        UUIDv4) and use the current time, exactly as a hand-authored STIX
+        tool would. `confidence` of 0 (the default) means "Not Specified"
+        per the STIX 2.1 spec, not an error. The result's `object.raw_json`
+        can be fed directly into BuildBundle's `objects_json`.
+    - name: BuildMalware
+      input: MalwareSpec
+      output: StixObjectResult
+      description: >-
+        Construct a well-formed STIX 2.1 Malware SDO from caller-supplied
+        fields and serialize it. `name` is REQUIRED. `is_family` is REQUIRED
+        by the STIX 2.1 spec and passed through as given, including its
+        default of false — itself a genuine spec-conformant value meaning
+        "this object represents one specific malware instance, not a
+        family." `id`/`created`/`modified` are optional overrides — leave
+        them empty to let the library generate a fresh id and use the
+        current time.
+    - name: BuildThreatActor
+      input: ThreatActorSpec
+      output: StixObjectResult
+      description: >-
+        Construct a well-formed STIX 2.1 Threat Actor SDO from
+        caller-supplied fields and serialize it. `name` is REQUIRED.
+        `sophistication` and `resource_level` are STIX open-vocabulary
+        strings (e.g. "advanced", "government") and are not checked against
+        the vocabulary list — an unrecognized value is passed through as a
+        custom vocabulary entry, which the STIX 2.1 spec explicitly permits
+        for open vocabularies. `id`/`created`/`modified` are optional
+        overrides — leave them empty to let the library generate a fresh id
+        and use the current time.
+    - name: BuildAttackPattern
+      input: AttackPatternSpec
+      output: StixObjectResult
+      description: >-
+        Construct a well-formed STIX 2.1 Attack Pattern SDO from
+        caller-supplied fields and serialize it. `name` is REQUIRED.
+        `kill_chain_phases` (kill_chain_name + phase_name pairs, e.g.
+        "lockheed-martin-cyber-kill-chain" / "reconnaissance") is optional
+        and may be repeated. `id`/`created`/`modified` are optional
+        overrides — leave them empty to let the library generate a fresh id
+        and use the current time.
+    - name: BuildRelationship
+      input: RelationshipSpec
+      output: StixObjectResult
+      description: >-
+        Construct a well-formed STIX 2.1 Relationship SRO from
+        caller-supplied fields and serialize it. `relationship_type`,
+        `source_ref`, and `target_ref` are all REQUIRED. The refs are taken
+        as given and NOT checked for existence — a Relationship may
+        legitimately reference an object delivered in a separate bundle, so
+        this node performs no cross-object lookup (use ResolveRelationships
+        on an assembled bundle for endpoint resolution). `id`/`created`/
+        `modified` are optional overrides — leave them empty to let the
+        library generate a fresh id and use the current time.
+    - name: BuildBundle
+      input: BuildBundleInput
+      output: StixObjectResult
+      description: >-
+        Assemble a well-formed STIX 2.1 Bundle from a list of
+        already-serialized STIX objects — e.g. the `object.raw_json` from
+        previous BuildIndicator/BuildMalware/BuildThreatActor/
+        BuildAttackPattern/BuildRelationship calls, or externally-authored
+        STIX JSON. Every entry in `objects_json` is parsed and structurally
+        validated before assembly; the first invalid entry aborts with a
+        structured error naming its index. Bounded to 2000 objects and 512
+        KiB of total input text. `id` is an optional override; leave it
+        empty to let the library generate a fresh bundle id.
