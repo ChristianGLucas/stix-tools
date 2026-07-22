@@ -2,6 +2,8 @@ from gen.messages_pb2 import StixInput, RelationshipGraphResult
 from nodes.resolve_relationships import resolve_relationships
 from nodes._test_fixtures import (
     BUNDLE_JSON,
+    BUNDLE_WITH_CUSTOM_JSON,
+    CUSTOM_SDO_ID,
     NOT_JSON,
     INDICATOR_ID,
     MALWARE_ID,
@@ -63,6 +65,19 @@ def test_resolve_relationships_dangling_ref_has_empty_type():
     indicates = [e for e in result.edges if e.relationship_type == "indicates"][0]
     assert indicates.source_ref == INDICATOR_ID
     assert indicates.source_type == ""  # dangling -- not present in this bundle
+
+
+def test_resolve_relationships_tolerates_unrecognized_custom_object_type():
+    # Regression: an unrecognized ("x-"-prefixed) object type used to fail
+    # the whole call. It should now appear as an ordinary (unconnected)
+    # graph vertex alongside the rest.
+    ax = StixTestContext()
+    result = resolve_relationships(ax, StixInput(stix_json=BUNDLE_WITH_CUSTOM_JSON))
+    assert result.ok is True
+    node_ids = {n.id for n in result.nodes}
+    assert CUSTOM_SDO_ID in node_ids
+    custom_node = [n for n in result.nodes if n.id == CUSTOM_SDO_ID][0]
+    assert custom_node.type == "x-acme-custom-thing"
 
 
 def test_resolve_relationships_malformed_returns_error_not_crash():

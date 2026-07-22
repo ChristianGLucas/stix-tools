@@ -137,6 +137,24 @@ MALWARE_JSON = json.dumps(_MALWARE)
 
 NOT_JSON = "{not valid json at all"
 MISSING_TYPE_JSON = json.dumps({"id": "indicator--0510477a-a878-4f62-a21f-6016898133dc"})
+
+CUSTOM_SDO_ID = "x-acme-custom-thing--9c3b8f1e-2b4a-4d90-9d0e-4a1b2c3d4e5f"
+_CUSTOM_SDO = {
+    "type": "x-acme-custom-thing",
+    "spec_version": "2.1",
+    "id": CUSTOM_SDO_ID,
+    "created": "2024-01-01T00:00:00.000Z",
+    "modified": "2024-01-01T00:00:00.000Z",
+    "name": "Vendor Extension Object",
+    "acme_severity": "high",
+}
+CUSTOM_SDO_JSON = json.dumps(_CUSTOM_SDO)
+
+# A realistic real-world bundle: the standard fixture PLUS one vendor-custom
+# SDO type ("x-"-prefixed per STIX 2.1 naming convention for custom objects)
+# -- exercises that ParseBundle/FilterObjectsByType/ResolveRelationships
+# never choke on an unrecognized-but-legal object type.
+BUNDLE_WITH_CUSTOM_JSON = json.dumps({**_BUNDLE, "objects": _ALL_OBJECTS + [_CUSTOM_SDO]})
 MISSING_REQUIRED_PROP_JSON = json.dumps(
     {
         "type": "indicator",

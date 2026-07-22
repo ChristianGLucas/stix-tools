@@ -20,6 +20,7 @@ import stix2patterns.validator as pattern_validator  # noqa: E402
 from stix2patterns.exceptions import ParseException as PatternParseException  # noqa: E402
 from stix2patterns.inspector import INDEX_STAR  # noqa: E402
 from stix2patterns.v21.pattern import Pattern as StixPattern21  # noqa: E402
+from stix2patterns.v21.grammars.STIXPatternListener import STIXPatternListener  # noqa: E402
 
 # ── Input bounds (well under Axiom's ~1 MiB deployed-ingress cap; a ~640 KiB
 #    safe ceiling was the guidance, these are more conservative still) ──────
@@ -44,12 +45,28 @@ def check_size(text, max_bytes, field_name):
         )
 
 
-def parse_stix(stix_json, allow_custom=False):
+def parse_stix(stix_json, allow_custom=True):
     """Parse caller-supplied STIX JSON text into a stix2 object (a single
     SDO/SCO/SRO, or a Bundle), applying the package's size bound first.
     Raises StixToolsError with a human-readable message on any problem --
-    malformed JSON, missing 'type', unrecognized type, missing required
-    properties, wrong property types, and so on.
+    malformed JSON, missing 'type', missing required properties, wrong
+    property types, and so on.
+
+    `allow_custom` defaults to True: a caller-defined property or an
+    unrecognized ("custom"/vendor-extension, e.g. "x-acme-thing") object
+    TYPE is accepted rather than rejected, matching real-world STIX feeds
+    that commonly carry vendor extensions -- this does NOT waive required-
+    property/type checking for RECOGNIZED object types, which is always
+    enforced regardless of this flag (see stix2's own properties.py: a
+    required=True property is checked unconditionally). Nodes that exist
+    specifically to perform strict spec-conformance checking (e.g.
+    ValidateStixObject) pass allow_custom=False explicitly to also reject
+    undeclared custom properties/types.
+
+    An object of an unrecognized type comes back from the underlying
+    library as a plain dict rather than a stix2 object when allow_custom is
+    True (this is stix2's own documented behavior, not something stix-tools
+    does) -- see stix_object_fields() for how that's handled downstream.
     """
     check_size(stix_json, MAX_STIX_JSON_BYTES, "stix_json")
     if not stix_json or not stix_json.strip():
@@ -78,15 +95,25 @@ def obj_field(obj, name, default=""):
 
 
 def stix_object_fields(obj):
-    """Extract the common StixObject fields from a parsed stix2 object as a
-    plain dict, suitable for `StixObject(**fields)`. Reads created/modified
-    back out of the object's OWN serialized JSON (rather than formatting the
-    live Python datetime ourselves) so the reported timestamp string is
-    byte-identical to what `raw_json` carries -- e.g. "2020-01-01T00:00:00Z",
-    not Python's "2020-01-01 00:00:00+00:00" repr.
+    """Extract the common StixObject fields from a parsed stix2 object (or a
+    plain dict -- see below) as a plain dict, suitable for
+    `StixObject(**fields)`. Reads created/modified back out of the object's
+    OWN serialized JSON (rather than formatting the live Python datetime
+    ourselves) so the reported timestamp string is byte-identical to what
+    `raw_json` carries -- e.g. "2020-01-01T00:00:00Z", not Python's
+    "2020-01-01 00:00:00+00:00" repr.
+
+    An object of an unrecognized ("custom") type parsed with
+    allow_custom=True comes back from stix2 as a plain dict rather than a
+    stix2 object (no `.serialize()` method) -- handled here by serializing
+    it ourselves via simplejson instead.
     """
-    raw_json = obj.serialize()
-    as_dict = json.loads(raw_json)
+    if hasattr(obj, "serialize"):
+        raw_json = obj.serialize()
+        as_dict = json.loads(raw_json)
+    else:
+        as_dict = obj
+        raw_json = json.dumps(obj, sort_keys=False)
     return {
         "id": as_dict.get("id", ""),
         "type": as_dict.get("type", ""),
@@ -189,19 +216,32 @@ def inspect_pattern(compiled):
     # FOLLOWEDBY splits the pattern into multiple observation expressions;
     # AND/OR compose comparisons WITHIN one observation expression and don't
     # add another. Every pattern has at least one observation expression.
-    observation_expression_count = 1 + (
-        1 if "FOLLOWEDBY" in data.observation_ops else 0
-    ) * _count_followedby(compiled)
-    return comparisons, max(observation_expression_count, 1), object_types
+    # stix2patterns' own InspectionListener only records FOLLOWEDBY as a set
+    # membership flag (present/absent), not a count, so it can't tell "a
+    # FOLLOWEDBY b" from "a FOLLOWEDBY b FOLLOWEDBY c" -- we walk the tree a
+    # second time with our own tiny counting listener to get an exact count.
+    observation_expression_count = 1 + _count_followedby(compiled)
+    return comparisons, observation_expression_count, object_types
+
+
+class _FollowedByCounter(STIXPatternListener):
+    """Counts FOLLOWEDBY tokens across the whole pattern -- the number of
+    top-level observation expressions is exactly 1 + this count.
+    """
+
+    def __init__(self):
+        self.count = 0
+
+    def exitObservationExpressions(self, ctx):
+        followedby_tokens = ctx.FOLLOWEDBY()
+        if followedby_tokens:
+            self.count += len(followedby_tokens) if isinstance(followedby_tokens, list) else 1
 
 
 def _count_followedby(compiled):
-    # stix2patterns' InspectionListener only records FOLLOWEDBY as a set
-    # membership flag, not a count, so a pattern using it at least once is
-    # reported as composing 2 observation expressions minimum. A precise
-    # count would require re-walking the tree; this is an honest lower bound
-    # documented on the field itself.
-    return 1
+    counter = _FollowedByCounter()
+    compiled.walk(counter)
+    return counter.count
 
 
 def validate_pattern_errors(pattern, stix_version="2.1"):

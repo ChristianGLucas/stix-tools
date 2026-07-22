@@ -2,6 +2,8 @@ from gen.messages_pb2 import StixInput, ParseBundleResult
 from nodes.parse_bundle import parse_bundle
 from nodes._test_fixtures import (
     BUNDLE_JSON,
+    BUNDLE_WITH_CUSTOM_JSON,
+    CUSTOM_SDO_ID,
     INDICATOR_JSON,
     NOT_JSON,
     BUNDLE_ID,
@@ -41,6 +43,28 @@ def test_parse_bundle_golden():
 
     relationship = [o for o in result.objects if o.type == "relationship"][0]
     assert relationship.name == ""  # Relationship has no 'name' property
+
+
+def test_parse_bundle_tolerates_unrecognized_custom_object_type():
+    # Regression: real-world STIX feeds commonly carry vendor-custom SDO
+    # types ("x-"-prefixed per the spec's own naming convention). An earlier
+    # version of this node rejected the WHOLE bundle (every object, not just
+    # the unrecognized one) whenever it contained such an object, which
+    # contradicted this node's own shipped description. Confirmed fixed:
+    # allow_custom=True lets the custom object through as-is while a known
+    # type with a genuinely missing required property is still caught (see
+    # test_parse_bundle_malformed_returns_error_not_crash and
+    # validate_stix_object_test.py's missing-required-property case).
+    ax = StixTestContext()
+    result = parse_bundle(ax, StixInput(stix_json=BUNDLE_WITH_CUSTOM_JSON))
+    assert result.ok is True
+    assert result.error == ""
+    assert len(result.objects) == independent_object_count(BUNDLE_WITH_CUSTOM_JSON)
+    by_id = {o.id: o for o in result.objects}
+    custom = by_id[CUSTOM_SDO_ID]
+    assert custom.type == "x-acme-custom-thing"
+    assert custom.name == "Vendor Extension Object"
+    assert '"acme_severity": "high"' in custom.raw_json
 
 
 def test_parse_bundle_single_bare_object():

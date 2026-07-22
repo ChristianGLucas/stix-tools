@@ -1,6 +1,12 @@
 from gen.messages_pb2 import FilterInput, FilterResult
 from nodes.filter_objects_by_type import filter_objects_by_type
-from nodes._test_fixtures import BUNDLE_JSON, NOT_JSON, INDICATOR_ID, StixTestContext
+from nodes._test_fixtures import (
+    BUNDLE_JSON,
+    BUNDLE_WITH_CUSTOM_JSON,
+    NOT_JSON,
+    INDICATOR_ID,
+    StixTestContext,
+)
 
 
 def test_filter_objects_by_type_indicator():
@@ -52,3 +58,23 @@ def test_filter_objects_by_type_malformed_returns_error_not_crash():
     result = filter_objects_by_type(ax, FilterInput(stix_json=NOT_JSON, type_filter="indicator"))
     assert result.ok is False
     assert result.error != ""
+
+
+def test_filter_objects_by_type_tolerates_unrecognized_custom_object_type():
+    # Regression: filtering used to fail the whole call when the bundle
+    # contained an unrecognized ("x-"-prefixed custom) object type, even
+    # when filtering for a different, perfectly well-formed type.
+    ax = StixTestContext()
+    result = filter_objects_by_type(ax, FilterInput(stix_json=BUNDLE_WITH_CUSTOM_JSON, type_filter="indicator"))
+    assert result.ok is True
+    assert result.matched_count == 1
+    assert result.objects[0].id == INDICATOR_ID
+
+
+def test_filter_objects_by_type_can_select_the_custom_type_itself():
+    ax = StixTestContext()
+    result = filter_objects_by_type(
+        ax, FilterInput(stix_json=BUNDLE_WITH_CUSTOM_JSON, type_filter="x-acme-custom-thing")
+    )
+    assert result.ok is True
+    assert result.matched_count == 1

@@ -38,12 +38,33 @@ def test_parse_indicator_pattern_negated_comparison():
     assert result.comparisons[0].negated is False  # '!=' itself, not a NOT-wrapped '='
 
 
-def test_parse_indicator_pattern_followedby_at_least_two_observations():
+def test_parse_indicator_pattern_followedby_two_observations():
     ax = StixTestContext()
     pattern = "[ipv4-addr:value = '203.0.113.10'] FOLLOWEDBY [file:name = 'evil.exe']"
     result = parse_indicator_pattern(ax, PatternInput(pattern=pattern))
     assert result.ok is True
-    assert result.observation_expression_count >= 2
+    # Independent oracle: the pattern text literally contains exactly one
+    # FOLLOWEDBY keyword, so exactly 2 observation expressions.
+    assert pattern.count("FOLLOWEDBY") == 1
+    assert result.observation_expression_count == 2
+
+
+def test_parse_indicator_pattern_multiple_followedby_exact_count():
+    # Regression: an earlier version of this node capped the count at 2 for
+    # ANY pattern using FOLLOWEDBY one-or-more times, silently undercounting
+    # a pattern chaining it more than once despite the field being named (and
+    # documented) as an exact count.
+    ax = StixTestContext()
+    pattern = (
+        "[ipv4-addr:value = '203.0.113.10'] FOLLOWEDBY [file:name = 'evil.exe'] "
+        "FOLLOWEDBY [domain-name:value = 'evil.example.com']"
+    )
+    result = parse_indicator_pattern(ax, PatternInput(pattern=pattern))
+    assert result.ok is True
+    # Independent oracle: the pattern text literally contains two FOLLOWEDBY
+    # keywords, so exactly 3 observation expressions.
+    assert pattern.count("FOLLOWEDBY") == 2
+    assert result.observation_expression_count == 3
 
 
 def test_parse_indicator_pattern_syntax_error_returns_error_not_crash():
