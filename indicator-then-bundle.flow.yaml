@@ -21,4 +21,4 @@ edges:
   - from: build_indicator
     to: build_bundle
     adapter:
-      objects_json: "[object.raw_json]"
+      "object.raw_json": objects_json
