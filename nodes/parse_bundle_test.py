@@ -6,6 +6,7 @@ from nodes._test_fixtures import (
     CUSTOM_SDO_ID,
     INDICATOR_JSON,
     NOT_JSON,
+    DEEPLY_NESTED_JSON,
     BUNDLE_ID,
     INDICATOR_ID,
     independent_object_count,
@@ -87,6 +88,17 @@ def test_parse_bundle_malformed_returns_error_not_crash():
 def test_parse_bundle_empty_input_returns_error():
     ax = StixTestContext()
     result = parse_bundle(ax, StixInput(stix_json=""))
+    assert result.ok is False
+    assert result.error != ""
+
+
+def test_parse_bundle_deeply_nested_input_returns_error_not_crash():
+    # Regression: a pathologically deep (but small, well under the byte cap)
+    # nesting attack used to raise an uncaught RecursionError (not a
+    # ValueError/KeyError/TypeError, so it slipped past the narrower except
+    # clauses) instead of returning a structured error.
+    ax = StixTestContext()
+    result = parse_bundle(ax, StixInput(stix_json=DEEPLY_NESTED_JSON))
     assert result.ok is False
     assert result.error != ""
 

@@ -138,6 +138,15 @@ MALWARE_JSON = json.dumps(_MALWARE)
 NOT_JSON = "{not valid json at all"
 MISSING_TYPE_JSON = json.dumps({"id": "indicator--0510477a-a878-4f62-a21f-6016898133dc"})
 
+# A pathologically deep (but small -- well under any of this package's byte
+# caps) nesting attack: 100,000 levels of "[" triggers a Python RecursionError
+# inside the JSON decoder itself, BEFORE any size/byte cap has a chance to
+# reject it. Confirmed this crashed uncaught (RecursionError is not a
+# ValueError/KeyError/TypeError, so the original narrow `except` clauses
+# missed it) prior to the broad `except Exception` catch-all added to every
+# node -- this fixture is the regression test for that fix.
+DEEPLY_NESTED_JSON = '{"type":"bundle","id":"bundle--x","objects":' + "[" * 100_000 + "]" * 100_000 + "}"
+
 CUSTOM_SDO_ID = "x-acme-custom-thing--9c3b8f1e-2b4a-4d90-9d0e-4a1b2c3d4e5f"
 _CUSTOM_SDO = {
     "type": "x-acme-custom-thing",

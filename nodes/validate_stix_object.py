@@ -17,12 +17,16 @@ def validate_stix_object(ax: AxiomContext, input: StixInput) -> ValidateResult:
     out = ValidateResult()
     try:
         parsed = parse_stix(input.stix_json, allow_custom=False)
+        out.valid = True
+        out.object_type = obj_field(parsed, "type")
+        out.object_id = obj_field(parsed, "id")
+        return out
     except StixToolsError as exc:
         out.valid = False
         out.errors.append(ValidationError(path="", message=str(exc)))
         return out
-
-    out.valid = True
-    out.object_type = obj_field(parsed, "type")
-    out.object_id = obj_field(parsed, "id")
-    return out
+    except Exception as exc:  # noqa: BLE001 -- last-resort: never leak a raw traceback
+        ax.log.error("validate_stix_object: unexpected exception", error=str(exc))
+        out.valid = False
+        out.errors.append(ValidationError(path="", message=f"unexpected error: {exc}"))
+        return out

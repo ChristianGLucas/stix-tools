@@ -16,10 +16,13 @@ def build_attack_pattern(ax: AxiomContext, input: AttackPatternSpec) -> StixObje
     try:
         if not input.name.strip():
             raise StixToolsError("name is required")
-        kill_chain_phases = [
-            stix2.v21.KillChainPhase(kill_chain_name=p.kill_chain_name, phase_name=p.phase_name)
-            for p in input.kill_chain_phases
-        ]
+        try:
+            kill_chain_phases = [
+                stix2.v21.KillChainPhase(kill_chain_name=p.kill_chain_name, phase_name=p.phase_name)
+                for p in input.kill_chain_phases
+            ]
+        except (TypeError, ValueError) as exc:
+            raise StixToolsError(f"invalid kill_chain_phases: {exc}")
         obj = build_object(
             stix2.v21.AttackPattern,
             dict(
@@ -32,15 +35,17 @@ def build_attack_pattern(ax: AxiomContext, input: AttackPatternSpec) -> StixObje
                 labels=list(input.labels),
             ),
         )
+        result_fields = stix_object_fields(obj)
+
+        out.ok = True
+        out.object.CopyFrom(StixObject(**result_fields))
+        return out
     except StixToolsError as exc:
         out.ok = False
         out.error = str(exc)
         return out
-    except (TypeError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 -- last-resort: never leak a raw traceback
+        ax.log.error("build_attack_pattern: unexpected exception", error=str(exc))
         out.ok = False
-        out.error = f"invalid kill_chain_phases: {exc}"
+        out.error = f"unexpected error: {exc}"
         return out
-
-    out.ok = True
-    out.object.CopyFrom(StixObject(**stix_object_fields(obj)))
-    return out

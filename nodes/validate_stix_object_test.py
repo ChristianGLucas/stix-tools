@@ -6,6 +6,7 @@ from nodes._test_fixtures import (
     NOT_JSON,
     MISSING_TYPE_JSON,
     MISSING_REQUIRED_PROP_JSON,
+    DEEPLY_NESTED_JSON,
     INDICATOR_ID,
     StixTestContext,
 )
@@ -49,3 +50,10 @@ def test_validate_stix_object_malformed_json_is_invalid_not_crash():
     assert result.valid is False
     assert len(result.errors) == 1
     assert result.errors[0].message != ""
+
+
+def test_validate_stix_object_deeply_nested_input_is_invalid_not_crash():
+    ax = StixTestContext()
+    result = validate_stix_object(ax, StixInput(stix_json=DEEPLY_NESTED_JSON))
+    assert result.valid is False
+    assert len(result.errors) == 1

@@ -4,6 +4,7 @@ from nodes._test_fixtures import (
     BUNDLE_JSON,
     BUNDLE_WITH_CUSTOM_JSON,
     NOT_JSON,
+    DEEPLY_NESTED_JSON,
     INDICATOR_ID,
     StixTestContext,
 )
@@ -78,3 +79,10 @@ def test_filter_objects_by_type_can_select_the_custom_type_itself():
     )
     assert result.ok is True
     assert result.matched_count == 1
+
+
+def test_filter_objects_by_type_deeply_nested_input_returns_error_not_crash():
+    ax = StixTestContext()
+    result = filter_objects_by_type(ax, FilterInput(stix_json=DEEPLY_NESTED_JSON, type_filter="indicator"))
+    assert result.ok is False
+    assert result.error != ""

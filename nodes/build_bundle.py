@@ -50,11 +50,17 @@ def build_bundle(ax: AxiomContext, input: BuildBundleInput) -> StixObjectResult:
         # those) must not be re-rejected when the assembled Bundle itself is
         # constructed/validated.
         bundle = build_object(stix2.v21.Bundle, dict(id=input.id, objects=parsed_objs), allow_custom=True)
+        result_fields = stix_object_fields(bundle)
+
+        out.ok = True
+        out.object.CopyFrom(StixObject(**result_fields))
+        return out
     except StixToolsError as exc:
         out.ok = False
         out.error = str(exc)
         return out
-
-    out.ok = True
-    out.object.CopyFrom(StixObject(**stix_object_fields(bundle)))
-    return out
+    except Exception as exc:  # noqa: BLE001 -- last-resort: never leak a raw traceback
+        ax.log.error("build_bundle: unexpected exception", error=str(exc))
+        out.ok = False
+        out.error = f"unexpected error: {exc}"
+        return out

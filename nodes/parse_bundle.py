@@ -15,16 +15,24 @@ def parse_bundle(ax: AxiomContext, input: StixInput) -> ParseBundleResult:
     """
     out = ParseBundleResult()
     try:
+        # Build into locals first, and only touch `out` after every step
+        # below has succeeded -- so if something raises partway through,
+        # `out` is never left holding a partial result on the error path.
         parsed = parse_stix(input.stix_json)
         bundle_id, spec_version, objs = bundle_top_level_objects(parsed)
+        stix_objects = [StixObject(**stix_object_fields(o)) for o in objs]
+
+        out.ok = True
+        out.bundle_id = bundle_id
+        out.spec_version = spec_version or ""
+        out.objects.extend(stix_objects)
+        return out
     except StixToolsError as exc:
         out.ok = False
         out.error = str(exc)
         return out
-
-    out.ok = True
-    out.bundle_id = bundle_id
-    out.spec_version = spec_version or ""
-    for o in objs:
-        out.objects.append(StixObject(**stix_object_fields(o)))
-    return out
+    except Exception as exc:  # noqa: BLE001 -- last-resort: never leak a raw traceback
+        ax.log.error("parse_bundle: unexpected exception", error=str(exc))
+        out.ok = False
+        out.error = f"unexpected error: {exc}"
+        return out

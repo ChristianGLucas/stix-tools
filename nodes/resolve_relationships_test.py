@@ -5,6 +5,7 @@ from nodes._test_fixtures import (
     BUNDLE_WITH_CUSTOM_JSON,
     CUSTOM_SDO_ID,
     NOT_JSON,
+    DEEPLY_NESTED_JSON,
     INDICATOR_ID,
     MALWARE_ID,
     THREAT_ACTOR_ID,
@@ -87,3 +88,10 @@ def test_resolve_relationships_malformed_returns_error_not_crash():
     assert result.error != ""
     assert len(result.nodes) == 0
     assert len(result.edges) == 0
+
+
+def test_resolve_relationships_deeply_nested_input_returns_error_not_crash():
+    ax = StixTestContext()
+    result = resolve_relationships(ax, StixInput(stix_json=DEEPLY_NESTED_JSON))
+    assert result.ok is False
+    assert result.error != ""

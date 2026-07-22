@@ -23,12 +23,16 @@ def validate_pattern(ax: AxiomContext, input: PatternInput) -> ValidatePatternRe
 
     try:
         check_size(input.pattern, 64 * 1024, "pattern")
+        errors = validate_pattern_errors(input.pattern)
+        out.valid = len(errors) == 0
+        out.errors.extend(errors)
+        return out
     except StixToolsError as exc:
         out.valid = False
         out.errors.append(str(exc))
         return out
-
-    errors = validate_pattern_errors(input.pattern)
-    out.valid = len(errors) == 0
-    out.errors.extend(errors)
-    return out
+    except Exception as exc:  # noqa: BLE001 -- last-resort: never leak a raw traceback
+        ax.log.error("validate_pattern: unexpected exception", error=str(exc))
+        out.valid = False
+        out.errors.append(f"unexpected error: {exc}")
+        return out

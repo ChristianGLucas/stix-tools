@@ -16,19 +16,31 @@ def filter_objects_by_type(ax: AxiomContext, input: FilterInput) -> FilterResult
     """
     out = FilterResult()
     try:
+        # Build into a local list first, and only touch `out` after every
+        # step below has succeeded -- so if something raises partway
+        # through, `out` is never left holding a partial result on the
+        # error path below.
         parsed = parse_stix(input.stix_json)
         _, _, objs = bundle_top_level_objects(parsed)
+
+        type_filter = (input.type_filter or "").strip().lower()
+        keep_all = type_filter in ("", "all")
+        matched = [
+            StixObject(**stix_object_fields(o))
+            for o in objs
+            if keep_all or obj_field(o, "type").lower() == type_filter
+        ]
+
+        out.ok = True
+        out.matched_count = len(matched)
+        out.objects.extend(matched)
+        return out
     except StixToolsError as exc:
         out.ok = False
         out.error = str(exc)
         return out
-
-    type_filter = (input.type_filter or "").strip().lower()
-    keep_all = type_filter in ("", "all")
-    for o in objs:
-        if keep_all or obj_field(o, "type").lower() == type_filter:
-            out.objects.append(StixObject(**stix_object_fields(o)))
-
-    out.ok = True
-    out.matched_count = len(out.objects)
-    return out
+    except Exception as exc:  # noqa: BLE001 -- last-resort: never leak a raw traceback
+        ax.log.error("filter_objects_by_type: unexpected exception", error=str(exc))
+        out.ok = False
+        out.error = f"unexpected error: {exc}"
+        return out

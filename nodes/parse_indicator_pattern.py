@@ -26,16 +26,22 @@ def parse_indicator_pattern(ax: AxiomContext, input: PatternInput) -> ParsePatte
     try:
         compiled = parse_pattern(input.pattern)
         comparisons, obs_count, object_types = inspect_pattern(compiled)
+        comparison_msgs = [
+            ComparisonExpression(object_path=object_path, operator=operator, value=value, negated=negated)
+            for object_path, operator, value, negated in comparisons
+        ]
+
+        out.ok = True
+        out.observation_expression_count = obs_count
+        out.object_types_referenced.extend(object_types)
+        out.comparisons.extend(comparison_msgs)
+        return out
     except StixToolsError as exc:
         out.ok = False
         out.error = str(exc)
         return out
-
-    out.ok = True
-    out.observation_expression_count = obs_count
-    out.object_types_referenced.extend(object_types)
-    for object_path, operator, value, negated in comparisons:
-        out.comparisons.append(
-            ComparisonExpression(object_path=object_path, operator=operator, value=value, negated=negated)
-        )
-    return out
+    except Exception as exc:  # noqa: BLE001 -- last-resort: never leak a raw traceback
+        ax.log.error("parse_indicator_pattern: unexpected exception", error=str(exc))
+        out.ok = False
+        out.error = f"unexpected error: {exc}"
+        return out

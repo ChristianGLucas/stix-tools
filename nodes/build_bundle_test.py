@@ -4,6 +4,7 @@ from nodes._test_fixtures import (
     INDICATOR_JSON,
     MALWARE_JSON,
     NOT_JSON,
+    DEEPLY_NESTED_JSON,
     CUSTOM_SDO_JSON,
     CUSTOM_SDO_ID,
     INDICATOR_ID,
@@ -76,3 +77,10 @@ def test_build_bundle_tolerates_unrecognized_custom_object_type():
     as_dict = json.loads(result.object.raw_json)
     ids = {o["id"] for o in as_dict["objects"]}
     assert ids == {INDICATOR_ID, CUSTOM_SDO_ID}
+
+
+def test_build_bundle_deeply_nested_entry_returns_error_not_crash():
+    ax = StixTestContext()
+    result = build_bundle(ax, BuildBundleInput(objects_json=[DEEPLY_NESTED_JSON]))
+    assert result.ok is False
+    assert result.error != ""
