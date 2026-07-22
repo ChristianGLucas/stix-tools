@@ -44,7 +44,12 @@ def build_bundle(ax: AxiomContext, input: BuildBundleInput) -> StixObjectResult:
             except StixToolsError as exc:
                 raise StixToolsError(f"objects_json[{idx}]: {exc}")
 
-        bundle = build_object(stix2.v21.Bundle, dict(id=input.id, objects=parsed_objs))
+        # allow_custom=True: each entry was already independently parsed
+        # with allow_custom=True above, so a custom/vendor-typed entry among
+        # them (e.g. from ParseBundle/FilterObjectsByType, which now emit
+        # those) must not be re-rejected when the assembled Bundle itself is
+        # constructed/validated.
+        bundle = build_object(stix2.v21.Bundle, dict(id=input.id, objects=parsed_objs), allow_custom=True)
     except StixToolsError as exc:
         out.ok = False
         out.error = str(exc)

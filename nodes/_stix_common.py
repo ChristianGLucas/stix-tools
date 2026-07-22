@@ -142,12 +142,22 @@ def bundle_top_level_objects(parsed):
         return "", obj_field(parsed, "spec_version"), [parsed]
 
 
-def build_object(stix_cls, kwargs):
+def build_object(stix_cls, kwargs, allow_custom=False):
     """Construct a stix2 v21 object, converting library errors into
     StixToolsError. Empty-string/empty-list/unset-zero fields are dropped so
     optional proto fields don't get passed as explicit empty overrides
     (letting the library apply its own defaults/auto-generation), except
     `is_family` where False is a genuine, meaningful value.
+
+    `allow_custom` defaults to False for the BuildIndicator/BuildMalware/etc.
+    nodes (their caller-supplied fields are all declared properties, so
+    there is nothing "custom" to allow). BuildBundle passes True: a
+    `objects` list assembled from BuildBundleInput.objects_json can
+    legitimately contain an unrecognized ("custom") object type -- each
+    entry was already independently parsed with allow_custom=True by
+    parse_stix(), so re-validating the assembled Bundle at its default
+    strictness would otherwise reject the very custom objects that were
+    just accepted one line earlier.
     """
     clean_kwargs = {}
     for k, v in kwargs.items():
@@ -157,6 +167,8 @@ def build_object(stix_cls, kwargs):
         if v in (None, "", [], 0):
             continue
         clean_kwargs[k] = v
+    if allow_custom:
+        clean_kwargs["allow_custom"] = True
     try:
         return stix_cls(**clean_kwargs)
     except stix2_exceptions.STIXError as exc:

@@ -1,6 +1,16 @@
 from gen.messages_pb2 import BuildBundleInput, StixObjectResult
 from nodes.build_bundle import build_bundle
-from nodes._test_fixtures import INDICATOR_JSON, MALWARE_JSON, NOT_JSON, INDICATOR_ID, MALWARE_ID, assert_valid_stix_id, StixTestContext
+from nodes._test_fixtures import (
+    INDICATOR_JSON,
+    MALWARE_JSON,
+    NOT_JSON,
+    CUSTOM_SDO_JSON,
+    CUSTOM_SDO_ID,
+    INDICATOR_ID,
+    MALWARE_ID,
+    assert_valid_stix_id,
+    StixTestContext,
+)
 import json
 
 
@@ -48,3 +58,21 @@ def test_build_bundle_over_object_cap_returns_error():
     result = build_bundle(ax, BuildBundleInput(objects_json=[INDICATOR_JSON] * 2001))
     assert result.ok is False
     assert "cap" in result.error
+
+
+def test_build_bundle_tolerates_unrecognized_custom_object_type():
+    # Regression: found in a second independent review pass -- BuildBundle
+    # parsed each entry with allow_custom=True (fine) but then re-validated
+    # the ASSEMBLED Bundle at the library's own default strictness
+    # (allow_custom=False), silently re-rejecting the very custom object
+    # that had just been accepted one line earlier. This matters because
+    # ParseBundle/FilterObjectsByType now legitimately emit custom-typed
+    # StixObjects (see their own tests), and this package's own docs say a
+    # Build* node's object.raw_json can be fed straight into
+    # BuildBundle.objects_json.
+    ax = StixTestContext()
+    result = build_bundle(ax, BuildBundleInput(objects_json=[INDICATOR_JSON, CUSTOM_SDO_JSON]))
+    assert result.ok is True
+    as_dict = json.loads(result.object.raw_json)
+    ids = {o["id"] for o in as_dict["objects"]}
+    assert ids == {INDICATOR_ID, CUSTOM_SDO_ID}
