@@ -54,11 +54,12 @@ def test_build_bundle_invalid_entry_names_its_index():
     assert "objects_json[1]" in result.error
 
 
-def test_build_bundle_over_object_cap_returns_error():
+def test_build_bundle_large_object_count_no_crash():
+    # Element count is the platform's concern, not this node's.
     ax = StixTestContext()
     result = build_bundle(ax, BuildBundleInput(objects_json=[INDICATOR_JSON] * 2001))
-    assert result.ok is False
-    assert "cap" in result.error
+    assert result.ok is True
+    assert len(result.object.raw_json) > 0
 
 
 def test_build_bundle_tolerates_unrecognized_custom_object_type():

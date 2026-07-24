@@ -22,27 +22,11 @@ from stix2patterns.inspector import INDEX_STAR  # noqa: E402
 from stix2patterns.v21.pattern import Pattern as StixPattern21  # noqa: E402
 from stix2patterns.v21.grammars.STIXPatternListener import STIXPatternListener  # noqa: E402
 
-# ── Input bounds (well under Axiom's ~1 MiB deployed-ingress cap; a ~640 KiB
-#    safe ceiling was the guidance, these are more conservative still) ──────
-MAX_STIX_JSON_BYTES = 512 * 1024
-MAX_PATTERN_BYTES = 64 * 1024
-MAX_BUNDLE_OBJECTS = 2000
-MAX_BUNDLE_TOTAL_BYTES = 512 * 1024
-
-
 class StixToolsError(Exception):
     """Raised for any structured, caller-facing error condition. Every node
     catches this at its boundary and turns it into a `(ok=false, error=...)`
     result rather than letting it propagate as a crash.
     """
-
-
-def check_size(text, max_bytes, field_name):
-    encoded_len = len((text or "").encode("utf-8", errors="ignore"))
-    if encoded_len > max_bytes:
-        raise StixToolsError(
-            f"{field_name} exceeds {max_bytes}-byte cap (got {encoded_len} bytes)"
-        )
 
 
 def parse_stix(stix_json, allow_custom=True):
@@ -68,7 +52,6 @@ def parse_stix(stix_json, allow_custom=True):
     True (this is stix2's own documented behavior, not something stix-tools
     does) -- see stix_object_fields() for how that's handled downstream.
     """
-    check_size(stix_json, MAX_STIX_JSON_BYTES, "stix_json")
     if not stix_json or not stix_json.strip():
         raise StixToolsError("stix_json is empty")
     try:
@@ -201,7 +184,6 @@ def parse_pattern(pattern):
     `stix2patterns.v21.pattern.Pattern`. Raises StixToolsError with a
     human-readable message on any syntax problem.
     """
-    check_size(pattern, MAX_PATTERN_BYTES, "pattern")
     if not pattern or not pattern.strip():
         raise StixToolsError("pattern is empty")
     try:
@@ -257,7 +239,6 @@ def _count_followedby(compiled):
 
 
 def validate_pattern_errors(pattern, stix_version="2.1"):
-    check_size(pattern, MAX_PATTERN_BYTES, "pattern")
     if not pattern or not pattern.strip():
         return ["pattern is empty"]
     return pattern_validator.run_validator(pattern, stix_version=stix_version)

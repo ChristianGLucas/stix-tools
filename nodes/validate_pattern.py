@@ -1,6 +1,6 @@
 from gen.messages_pb2 import PatternInput, ValidatePatternResult
 from gen.axiom_context import AxiomContext
-from nodes._stix_common import validate_pattern_errors, check_size, StixToolsError
+from nodes._stix_common import validate_pattern_errors, StixToolsError
 
 
 def validate_pattern(ax: AxiomContext, input: PatternInput) -> ValidatePatternResult:
@@ -22,7 +22,6 @@ def validate_pattern(ax: AxiomContext, input: PatternInput) -> ValidatePatternRe
         return out
 
     try:
-        check_size(input.pattern, 64 * 1024, "pattern")
         errors = validate_pattern_errors(input.pattern)
         out.valid = len(errors) == 0
         out.errors.extend(errors)

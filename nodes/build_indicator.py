@@ -1,6 +1,6 @@
 from gen.messages_pb2 import IndicatorSpec, StixObjectResult, StixObject
 from gen.axiom_context import AxiomContext
-from nodes._stix_common import build_object, stix_object_fields, check_size, stix2, StixToolsError
+from nodes._stix_common import build_object, stix_object_fields, stix2, StixToolsError
 
 
 def build_indicator(ax: AxiomContext, input: IndicatorSpec) -> StixObjectResult:
@@ -16,7 +16,6 @@ def build_indicator(ax: AxiomContext, input: IndicatorSpec) -> StixObjectResult:
     """
     out = StixObjectResult()
     try:
-        check_size(input.pattern, 64 * 1024, "pattern")
         if not input.pattern.strip():
             raise StixToolsError("pattern is required")
         if not input.valid_from.strip():
